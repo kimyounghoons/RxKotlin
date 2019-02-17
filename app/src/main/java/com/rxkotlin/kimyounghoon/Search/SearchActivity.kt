@@ -62,7 +62,7 @@ class SearchActivity : AppCompatActivity(), SearchContract.View {
         activityMainBinding.progress.visibility = GONE
     }
 
-    override fun loadItems(documents: List<Document>) {
+    override fun add(documents: List<Document>) {
         (activityMainBinding.recyclerView.adapter as SearchAdapter).apply {
             addItem(documents as ArrayList<Document>)
         }

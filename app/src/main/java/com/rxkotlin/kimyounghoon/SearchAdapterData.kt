@@ -1,10 +1,9 @@
 package com.rxkotlin.kimyounghoon
 
-import android.util.Log
 import com.rxkotlin.kimyounghoon.DTO.SearchDTO
 import com.rxkotlin.kimyounghoon.network.RetrofitClient
 import com.rxkotlin.kimyounghoon.network.SearchApi
-import io.reactivex.Observable
+import io.reactivex.Flowable
 
 
 class SearchAdapterData {
@@ -17,13 +16,12 @@ class SearchAdapterData {
         private set
     val isLoadMore: Boolean
         get() = searchDTO != null && !searchDTO!!.meta.isEnd
-    private val nextPage: Int
+    val nextPage: Int
         get() = pageCount + 1
 
-    fun getItemsFromNetwork(query: String): Observable<SearchDTO> {
+    fun getItemsFromNetwork(pageCount: Int, query: String): Flowable<SearchDTO> {
+        this.pageCount = pageCount
         this.query = query
-        this.pageCount = nextPage
-        Log.d("kyh!!!",pageCount.toString())
         return searchService.getSearchImages(query, pageCount, DEFAULT_ITEM_SIZE)
     }
 

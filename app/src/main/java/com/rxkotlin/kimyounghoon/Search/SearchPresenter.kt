@@ -5,19 +5,24 @@ import com.jakewharton.rxbinding2.support.v7.widget.RecyclerViewScrollEvent
 import com.jakewharton.rxbinding2.widget.TextViewTextChangeEvent
 import com.rxkotlin.kimyounghoon.DTO.SearchDTO
 import com.rxkotlin.kimyounghoon.SearchAdapterData
+import io.reactivex.Flowable
 import io.reactivex.Observable
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
+import io.reactivex.processors.PublishProcessor
 import io.reactivex.schedulers.Schedulers
 import java.util.concurrent.TimeUnit
 
 class SearchPresenter(var searchAdapterData: SearchAdapterData, var view: SearchContract.View) : SearchContract.Presenter {
 
     private var compositeDisposable: CompositeDisposable? = null
+    private var paginator = PublishProcessor.create<Int>()
+    private var query: String = ""
 
     override fun onCreate() {
         if (compositeDisposable == null)
             compositeDisposable = CompositeDisposable()
+        subscribeForSearch()
     }
 
     override fun observeRecyclerViewScroll(observable: Observable<RecyclerViewScrollEvent>) {
@@ -28,7 +33,7 @@ class SearchPresenter(var searchAdapterData: SearchAdapterData, var view: Search
                     view.scrolledToBottom() && !searchAdapterData.isLoading && searchAdapterData.isLoadMore
                 }
                 .subscribe { event ->
-                    trySearch(searchAdapterData.query)
+                    paginator.onNext(searchAdapterData.nextPage)
                 })
     }
 
@@ -42,46 +47,53 @@ class SearchPresenter(var searchAdapterData: SearchAdapterData, var view: Search
                 .subscribe {
                     view.clearFocusEditText()
                     view.hideKeyboard()
-                    trySearch(it.text().toString())
+                    query = it.text().toString()
+                    trySearch()
                 })
     }
 
-    private fun trySearch(query: String) {
+    private fun trySearch() {
         if (!TextUtils.isEmpty(searchAdapterData.query) && query != searchAdapterData.query) {
             view.clearAdapter()
             searchAdapterData.clearData()
         }
-        compositeDisposable?.add(searchAdapterData.getItemsFromNetwork(query)
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .doOnSubscribe {
+        paginator.onNext(searchAdapterData.nextPage)
+    }
+
+    private fun subscribeForSearch() {
+        compositeDisposable?.add(paginator
+                .onBackpressureDrop()
+                .concatMap {
                     view.showProgress()
                     searchAdapterData.setLoadState(true)
-                }.doOnTerminate {
-                    view.hideProgress()
-                    searchAdapterData.setLoadState(false)
-                }
-                .subscribe({ searchDTO ->
-                    searchAdapterData.setSearchData(searchDTO)
-                    loadItems(searchDTO)
-                }, { throwable ->
-                    throwable.printStackTrace()
+                    getItemsFromNetwork(it, query)
+                            .subscribeOn(Schedulers.io())
+                            .observeOn(AndroidSchedulers.mainThread())
+                }.subscribe({ searchDTO ->
+                    searchDTO?.apply {
+                        searchAdapterData.setSearchData(searchDTO)
+                        loadItems(searchDTO)
+                        view.hideProgress()
+                        searchAdapterData.setLoadState(false)
+                    }
+                }, {
+                    it.printStackTrace()
                 })
         )
     }
 
-    private fun loadItems(searchDTO: SearchDTO?) {
-        searchDTO?.documents?.apply {
+    private fun loadItems(searchDTO: SearchDTO) {
+        searchDTO.documents.apply {
             if (size > 0) {
-                view.loadItems(searchDTO.documents)
+                view.add(searchDTO.documents)
                 return
             }
         }
         view.showNoResults()
     }
 
-    override fun getItemsFromNetwork(query: String): Observable<SearchDTO> {
-        return searchAdapterData.getItemsFromNetwork(query)
+    override fun getItemsFromNetwork(pageCount: Int, query: String): Flowable<SearchDTO> {
+        return searchAdapterData.getItemsFromNetwork(pageCount, query)
     }
 
     override fun onDestroy() {
